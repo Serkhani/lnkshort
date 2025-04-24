@@ -3,6 +3,8 @@ mod routes;
 use std::error::Error;
 
 use axum::{Router, routing::get};
+use axum_prometheus::PrometheusMetricLayer;
+use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::routes::health;
@@ -17,10 +19,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .with(tracing_subscriber::fmt::layer())
     .init();
 
-    let app = Router::new()
-    .route("/health", get(health));
+    let (promlayer, metric_handler) = PrometheusMetricLayer::pair();
 
-    let listener = tokio::net::TcpListener::bind("[IP_ADDRESS]:3000").await.expect("Could not start server");
+    let app = Router::new()
+    .route("/health", get(health))
+    .route("/metrics", get(|| async move { metric_handler.render()}))
+    .layer(TraceLayer::new_for_http())
+    .layer(promlayer);
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.expect("Could not start server");
 
     tracing::debug!("Server running on: http://{}", listener.local_addr().expect("Could not get local address"));
 
