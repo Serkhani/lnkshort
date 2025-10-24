@@ -1,4 +1,5 @@
 mod routes;
+mod utils;
 
 use std::error::Error;
 

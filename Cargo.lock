@@ -990,6 +990,8 @@ dependencies = [
  "dotenvy",
  "metrics",
  "metrics-exporter-prometheus",
+ "serde",
+ "serde_json",
  "sqlx",
  "tokio",
  "tower",
