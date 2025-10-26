@@ -9,7 +9,7 @@ use sqlx::postgres::PgPoolOptions;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::routes::health;
+use crate::routes::{health, redirect};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -24,13 +24,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let db = PgPoolOptions::new()
-    .max_connections(12)
-    .connect(&db_url ).await?;
+        .max_connections(12)
+        .connect(&db_url)
+        .await?;
 
     let (promlayer, metric_handler) = PrometheusMetricLayer::pair();
 
     let app = Router::new()
         .route("/health", get(health))
+        .route("/:id", get(redirect))
         .route("/metrics", get(|| async move { metric_handler.render() }))
         .layer(TraceLayer::new_for_http())
         .layer(promlayer)
