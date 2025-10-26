@@ -1,6 +1,6 @@
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
 use base64::engine::general_purpose;
@@ -38,6 +38,7 @@ pub async fn health() -> impl IntoResponse {
 pub async fn redirect(
     State(pool): State<PgPool>,
     Path(requested_link): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Response, (StatusCode, String)> {
     let select_timeout = tokio::time::Duration::from_millis(300);
 
@@ -60,6 +61,36 @@ pub async fn redirect(
         requested_link,
         link.target_url
     );
+
+    let referer = headers
+        .get("referer")
+        .map(|val| val.to_str().unwrap_or_default().to_string());
+    let user_agent = headers
+        .get("user-agent")
+        .map(|val| val.to_str().unwrap_or_default().to_string());
+
+    let stat_insert_timeout = tokio::time::Duration::from_millis(300);
+
+    let savedstats = tokio::time::timeout(
+        stat_insert_timeout,
+        sqlx::query("insert into lnkstats (link_id, user_agent, referer) values ($1, $2, $3)")
+            .bind(link.id)
+            .bind(&user_agent)
+            .bind(&referer)
+            .execute(&pool),
+    )
+    .await;
+
+    match savedstats {
+        Err(elapsed) => tracing::error!("could not save stat in time: {}", elapsed),
+        Ok(Err(err)) => tracing::error!("error while saving stat: {}", err),
+        _ => tracing::debug!(
+            "id: {}, referer: {:?}, user_agent: {:?} saved",
+            requested_link,
+            referer.unwrap_or_default(),
+            user_agent.unwrap_or_default()
+        ),
+    }
 
     Ok(Response::builder()
         .status(StatusCode::TEMPORARY_REDIRECT)
