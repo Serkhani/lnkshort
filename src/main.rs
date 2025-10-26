@@ -35,8 +35,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let app = Router::new()
         .route("/health", get(health))
-        .route("/{:id}", get(redirect))
-        .route("/update/{:oldLinkId}", put(update_link))
+        .route("/{:id}", put(update_link).get(redirect))
         .route("/create", post(create_link))
         .route("/metrics", get(|| async move { metric_handler.render() }))
         .layer(TraceLayer::new_for_http())
