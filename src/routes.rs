@@ -99,3 +99,31 @@ pub async fn create_link(
     tracing::debug!("Created link with id {} targeting: {}", new_link_id, url);
     Ok(Json(created_link))
 }
+
+pub async fn update_link(
+    State(pool): State<PgPool>,
+    Path(old_link_id): Path<String>,
+    Json(new_link_target): Json<LinkTarget>,
+) -> Result<Json<Link>, (StatusCode, String)> {
+    let url = Url::parse(&new_link_target.target_url)
+        .map_err(|_| (StatusCode::CONFLICT, "url malformed".to_string()))?
+        .to_string();
+    let update_timeout = tokio::time::Duration::from_millis(300);
+
+    let new_link = tokio::time::timeout(
+        update_timeout,
+        sqlx::query_as!(
+            Link,
+            "update links set target_url=$1 where id=$2 returning id, target_url",
+            url,
+            old_link_id
+        )
+        .fetch_one(&pool),
+    )
+    .await
+    .map_err(internal_error)?
+    .map_err(internal_error)?;
+
+    tracing::debug!("Updated link with id {} to {}", old_link_id, url);
+    Ok(Json(new_link))
+}

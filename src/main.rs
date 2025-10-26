@@ -3,13 +3,16 @@ mod utils;
 
 use std::error::Error;
 
-use axum::{Router, routing::{get, post}};
+use axum::{
+    Router,
+    routing::{get, post, put},
+};
 use axum_prometheus::PrometheusMetricLayer;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::routes::{create_link, health, redirect};
+use crate::routes::{create_link, health, redirect, update_link};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -33,6 +36,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/{:id}", get(redirect))
+        .route("/update/{:oldLinkId}", put(update_link))
         .route("/create", post(create_link))
         .route("/metrics", get(|| async move { metric_handler.render() }))
         .layer(TraceLayer::new_for_http())
