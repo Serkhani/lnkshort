@@ -31,6 +31,14 @@ pub struct LinkTarget {
     pub target_url: String,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkStats {
+    pub amount: Option<i64>,
+    pub referer: Option<String>,
+    pub user_agent: Option<String>,
+}
+
 pub async fn health() -> impl IntoResponse {
     (StatusCode::OK, "OK")
 }
@@ -157,4 +165,25 @@ pub async fn update_link(
 
     tracing::debug!("Updated link with id {} to {}", old_link_id, url);
     Ok(Json(new_link))
+}
+
+pub async fn getstats(
+    State(pool): State<PgPool>,
+    Path(link_id): Path<String>,
+) -> Result<Json<Vec<LinkStats>>, (StatusCode, String)> {
+    let get_stats_timeout = tokio::time::Duration::from_millis(300);
+
+    let stats = tokio::time::timeout(
+        get_stats_timeout,
+        sqlx::query_as!(LinkStats,"select count(*) as amount, referer, user_agent from lnkstats where link_id=$1 group by link_id, referer, user_agent",
+        link_id)
+        .fetch_all(&pool),
+    )
+    .await
+    .map_err(internal_error)?
+    .map_err(internal_error)?;
+
+    tracing::debug!("Link Stats with id: {} requested", link_id);
+
+    Ok(Json(stats))
 }

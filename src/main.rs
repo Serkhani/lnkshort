@@ -12,7 +12,7 @@ use sqlx::postgres::PgPoolOptions;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::routes::{create_link, health, redirect, update_link};
+use crate::routes::{create_link, getstats, health, redirect, update_link};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -37,6 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route("/health", get(health))
         .route("/{:id}", put(update_link).get(redirect))
         .route("/create", post(create_link))
+        .route("/stats", get(getstats))
         .route("/metrics", get(|| async move { metric_handler.render() }))
         .layer(TraceLayer::new_for_http())
         .layer(promlayer)
