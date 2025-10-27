@@ -4,7 +4,9 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
 use base64::engine::general_purpose;
-use sqlx::PgPool;
+use metrics::counter;
+use sqlx::error::ErrorKind;
+use sqlx::{Error, PgPool};
 use url::Url;
 
 use crate::utils::internal_error;
@@ -118,25 +120,39 @@ pub async fn create_link(
 
     let insert_link_timeout = tokio::time::Duration::from_millis(300);
 
-    let new_link_id = generate_id();
-    let created_link = tokio::time::timeout(
-        insert_link_timeout,
-        sqlx::query_as!(
-            Link,
-            "insert into links (id, target_url) values ($1, $2) returning id, target_url",
-            new_link_id,
-            url
+    for _ in 1..=3 {
+        let new_link_id = generate_id();
+        let created_link = tokio::time::timeout(
+            insert_link_timeout,
+            sqlx::query_as!(
+                Link,
+                "insert into links (id, target_url) values ($1, $2) returning id, target_url",
+                new_link_id,
+                url
+            )
+            .fetch_one(&pool),
         )
-        .fetch_one(&pool),
-    )
-    .await
-    .map_err(internal_error)?
-    .map_err(internal_error)?;
+        .await
+        // .map_err(internal_error)?
+        .map_err(internal_error)?;
+        match created_link {
+            Ok(link) => {
+                tracing::debug!("Created link with id {} targeting: {}", new_link_id, url);
+                return Ok(Json(link))
+            }
+            Err(err)=> match err {
+                Error::Database(db_err) if db_err.kind() == ErrorKind::UniqueViolation=>{}
+                _=> return Err(internal_error(err))
+            }
+        }
+    }
+    tracing::error!("Could not persist new short link. Exhausted all retries");
+    counter!("exhausting_unique_entries",).increment(1);
+    Err((StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".into()))
+    // Ok(Json(created_link))
     // .ok_or_else(|| "Link should have been created".to_string())
     // .map_err(|err| (StatusCode::CONFLICT, err))?;
 
-    tracing::debug!("Created link with id {} targeting: {}", new_link_id, url);
-    Ok(Json(created_link))
 }
 
 pub async fn update_link(
