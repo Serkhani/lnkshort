@@ -172,7 +172,7 @@ pub async fn getstats(
     Path(link_id): Path<String>,
 ) -> Result<Json<Vec<LinkStats>>, (StatusCode, String)> {
     let get_stats_timeout = tokio::time::Duration::from_millis(300);
-
+    print!("{}", link_id);
     let stats = tokio::time::timeout(
         get_stats_timeout,
         sqlx::query_as!(LinkStats,"select count(*) as amount, referer, user_agent from lnkstats where link_id=$1 group by link_id, referer, user_agent",

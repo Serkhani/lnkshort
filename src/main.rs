@@ -1,10 +1,11 @@
+mod auth;
 mod routes;
 mod utils;
 
 use std::error::Error;
 
 use axum::{
-    Router,
+    Router, middleware,
     routing::{get, post, put},
 };
 use axum_prometheus::PrometheusMetricLayer;
@@ -12,6 +13,7 @@ use sqlx::postgres::PgPoolOptions;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use crate::auth::auth;
 use crate::routes::{create_link, getstats, health, redirect, update_link};
 
 #[tokio::main]
@@ -34,10 +36,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (promlayer, metric_handler) = PrometheusMetricLayer::pair();
 
     let app = Router::new()
-        .route("/health", get(health))
-        .route("/{:id}", put(update_link).get(redirect))
         .route("/create", post(create_link))
-        .route("/stats", get(getstats))
+        .route("/{:id}/stats", get(getstats))
+        .route_layer(middleware::from_fn_with_state(db.clone(), auth))
+        .route("/health", get(health))
+        .route(
+            "/{:id}",
+            put(update_link)
+                .route_layer(middleware::from_fn_with_state(db.clone(), auth))
+                .get(redirect),
+        )
         .route("/metrics", get(|| async move { metric_handler.render() }))
         .layer(TraceLayer::new_for_http())
         .layer(promlayer)
