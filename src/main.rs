@@ -1,68 +1,77 @@
-mod auth;
-mod routes;
-mod utils;
-
 use std::error::Error;
-
-use axum::{
-    Router, middleware,
-    routing::{get, post, put},
-};
-use axum_prometheus::PrometheusMetricLayer;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use sqlx::postgres::PgPoolOptions;
-use tower_http::trace::TraceLayer;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::auth::auth;
-use crate::routes::{create_link, getstats, health, redirect, update_link};
+use lnkshort::{
+    create_router,
+    telemetry::{init_tracing, setup_metrics},
+    AppConfig, AppState,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenvy::dotenv().ok();
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "lnkshort=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
 
-    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let config = Arc::new(AppConfig::from_env()?);
+
+    init_tracing(&config.log_level);
+
+    tracing::info!("Initializing database connection pool...");
     let db = PgPoolOptions::new()
-        .max_connections(12)
-        .connect(&db_url)
+        .max_connections(config.database.max_connections)
+        .min_connections(config.database.min_connections)
+        .acquire_timeout(config.database.acquire_timeout)
+        .connect(&config.database.url)
         .await?;
 
-    let (promlayer, metric_handler) = PrometheusMetricLayer::pair();
+    let (prom_layer, metric_handle) = setup_metrics();
 
-    let app = Router::new()
-        .route("/create", post(create_link))
-        .route("/{:id}/stats", get(getstats))
-        .route_layer(middleware::from_fn_with_state(db.clone(), auth))
-        .route("/health", get(health))
-        .route(
-            "/{:id}",
-            put(update_link)
-                .route_layer(middleware::from_fn_with_state(db.clone(), auth))
-                .get(redirect),
-        )
-        .route("/metrics", get(|| async move { metric_handler.render() }))
-        .layer(TraceLayer::new_for_http())
-        .layer(promlayer)
-        .with_state(db);
+    let state = AppState::new(db, config.clone());
+    let app = create_router(state, prom_layer, metric_handle);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
-        .await
-        .expect("Could not start server");
+    let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
+    let listener = tokio::net::TcpListener::bind(addr).await?;
 
-    tracing::debug!(
-        "Server running on: http://{}",
-        listener.local_addr().expect("Could not get local address")
-    );
+    tracing::info!("Server running on: http://{}", listener.local_addr()?);
 
     axum::serve(listener, app)
-        .await
-        .expect("Could not start server");
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
+    tracing::info!("Server shutdown completed");
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(err) => {
+                tracing::error!("Failed to install SIGTERM signal handler: {}", err);
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            tracing::info!("Received Ctrl+C, initiating graceful shutdown");
+        },
+        _ = terminate => {
+            tracing::info!("Received SIGTERM, initiating graceful shutdown");
+        },
+    }
 }
