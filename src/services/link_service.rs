@@ -1,9 +1,8 @@
-use std::sync::Arc;
 use base64::Engine;
 use base64::engine::general_purpose;
 use metrics::counter;
-use sqlx::error::ErrorKind;
-use sqlx::{Error, PgPool};
+use sea_orm::{DatabaseConnection, DbErr};
+use std::sync::Arc;
 use url::Url;
 
 use crate::config::LinkConfig;
@@ -28,44 +27,69 @@ impl LinkService {
     }
 
     pub fn validate_url(raw_url: &str) -> Result<String, AppError> {
-        let parsed = Url::parse(raw_url)
-            .map_err(|_| AppError::InvalidUrl("url malformed".to_string()))?;
+        let parsed =
+            Url::parse(raw_url).map_err(|_| AppError::InvalidUrl("url malformed".to_string()))?;
         if parsed.scheme() != "http" && parsed.scheme() != "https" {
             return Err(AppError::InvalidUrl("url malformed".to_string()));
         }
         Ok(parsed.to_string())
     }
 
-    pub async fn get_link(&self, pool: &PgPool, id: &str) -> Result<Link, AppError> {
-        let link_opt = tokio::time::timeout(
-            self.config.query_timeout,
-            self.repo.find_by_id(pool, id),
-        )
-        .await
-        .map_err(|e| AppError::Timeout(e.to_string()))?
-        .map_err(AppError::Database)?;
+    pub async fn get_link(&self, db: &DatabaseConnection, id: &str) -> Result<Link, AppError> {
+        let link_opt =
+            tokio::time::timeout(self.config.query_timeout, self.repo.find_by_id(db, id))
+                .await
+                .map_err(|e| AppError::Timeout(e.to_string()))?
+                .map_err(AppError::Database)?;
 
         link_opt.ok_or_else(|| AppError::NotFound("Not found".to_string()))
     }
 
-    pub async fn create_link(&self, pool: &PgPool, raw_url: &str) -> Result<Link, AppError> {
+    fn is_unique_violation(err: &DbErr) -> bool {
+        match err {
+            DbErr::Exec(sea_orm::RuntimeErr::SqlxError(sea_orm::sqlx::Error::Database(db_err)))
+            | DbErr::Query(sea_orm::RuntimeErr::SqlxError(sea_orm::sqlx::Error::Database(
+                db_err,
+            ))) => {
+                db_err.kind() == sea_orm::sqlx::error::ErrorKind::UniqueViolation
+                    || db_err.code().as_deref() == Some("23505")
+            }
+            _ => {
+                let msg = err.to_string().to_lowercase();
+                msg.contains("unique") || msg.contains("duplicate") || msg.contains("23505")
+            }
+        }
+    }
+
+    pub async fn create_link(
+        &self,
+        db: &DatabaseConnection,
+        raw_url: &str,
+    ) -> Result<Link, AppError> {
         let url = Self::validate_url(raw_url)?;
 
         for _ in 1..=self.config.max_retries {
             let new_link_id = Self::generate_id();
             let result = tokio::time::timeout(
                 self.config.query_timeout,
-                self.repo.create(pool, &new_link_id, &url),
+                self.repo.create(db, &new_link_id, &url),
             )
             .await;
 
             match result {
                 Ok(Ok(link)) => {
-                    tracing::debug!("Created link with id {} targeting: {}", link.id, link.target_url);
+                    tracing::debug!(
+                        "Created link with id {} targeting: {}",
+                        link.id,
+                        link.target_url
+                    );
                     return Ok(link);
                 }
-                Ok(Err(Error::Database(db_err))) if db_err.kind() == ErrorKind::UniqueViolation => {
-                    tracing::warn!("Collision detected for link id {}, retrying...", new_link_id);
+                Ok(Err(err)) if Self::is_unique_violation(&err) => {
+                    tracing::warn!(
+                        "Collision detected for link id {}, retrying...",
+                        new_link_id
+                    );
                     continue;
                 }
                 Ok(Err(err)) => return Err(AppError::Database(err)),
@@ -80,22 +104,20 @@ impl LinkService {
 
     pub async fn update_link(
         &self,
-        pool: &PgPool,
+        db: &DatabaseConnection,
         id: &str,
         raw_url: &str,
     ) -> Result<Link, AppError> {
         let url = Self::validate_url(raw_url)?;
 
-        let updated_link = tokio::time::timeout(
-            self.config.query_timeout,
-            self.repo.update(pool, id, &url),
-        )
-        .await
-        .map_err(|e| AppError::Timeout(e.to_string()))?
-        .map_err(|err| match err {
-            Error::RowNotFound => AppError::NotFound("Not found".to_string()),
-            other => AppError::Database(other),
-        })?;
+        let updated_link =
+            tokio::time::timeout(self.config.query_timeout, self.repo.update(db, id, &url))
+                .await
+                .map_err(|e| AppError::Timeout(e.to_string()))?
+                .map_err(|err| match err {
+                    DbErr::RecordNotFound(_) => AppError::NotFound("Not found".to_string()),
+                    other => AppError::Database(other),
+                })?;
 
         tracing::debug!("Updated link with id {} to {}", id, url);
         Ok(updated_link)
@@ -111,7 +133,10 @@ mod tests {
         let id = LinkService::generate_id();
         assert!(!id.is_empty());
         // URL-safe characters only
-        assert!(id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_'));
+        assert!(
+            id.chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        );
     }
 
     #[test]

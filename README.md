@@ -1,6 +1,6 @@
 # lnkshort
 
-A high-performance, production-grade URL shortening and redirection service written in Rust using [Axum](https://github.com/tokio-rs/axum), [SQLx](https://github.com/launchbadge/sqlx), and PostgreSQL.
+A high-performance, production-grade URL shortening and redirection service written in Rust using [Axum](https://github.com/tokio-rs/axum), [SeaORM](https://www.sea-ql.org/SeaORM/), and PostgreSQL.
 
 Built for low latency, resilience under load, and maintainability through a clean layered architecture.
 
@@ -65,14 +65,14 @@ src/
 ├── state.rs            # AppState container (DB pool, config, injected services)
 ├── telemetry.rs        # Tracing subscriber and Prometheus metrics setup
 ├── models/             # Domain entities and DTOs (Link, LinkStats, Setting)
-├── repository/         # Data access layer (SQLx queries isolated from domain logic)
+├── repository/         # Data access layer (SeaORM queries isolated from domain logic)
 ├── services/           # Business logic (retries, ID generation, validation, crypto)
 └── api/                # HTTP presentation layer (Axum routers, handlers, middleware)
 ```
 
 ### Why this architecture?
 
-1. **Decoupling Transports from Storage**: Raw SQL queries are encapsulated inside `repository/`. The service layer does not know whether data comes from PostgreSQL, an in-memory cache, or an external KV store.
+1. **Decoupling Transports from Storage**: Database operations are encapsulated inside `repository/` using SeaORM entities and active models. The service layer does not know whether data comes from PostgreSQL, an in-memory cache, or an external KV store.
 2. **Testability**: Splitting into a library (`lib.rs`) and binary (`main.rs`) allows comprehensive integration tests against Axum routers without spawning external processes.
 3. **Dependency Injection**: `AppState` holds cloned service handles and repository instances, allowing easy replacement or mocking during tests.
 4. **Resilience by Default**: All database interactions are wrapped with configurable timeouts (`QUERY_TIMEOUT_MS`) to prevent connection pool exhaustion during database slowdowns.
@@ -323,7 +323,6 @@ cargo fmt --check
 The refactored modular structure allows painless expansion for enterprise workloads:
 
 - **Adding a Redis Cache**: Wrap `LinkRepository` with a caching repository implementation (or implement a `LinkCache` trait) to serve hot redirects straight from memory.
-- **Custom Vanity Slugs**: Extend `models/link.rs` and `LinkService::create_link` to accept an optional custom alias.
 - **Async Batch Analytics**: Replace direct SQL stat inserts with an in-memory queue (`tokio::sync::mpsc`) and flush batches periodically to PostgreSQL or ClickHouse.
 - **Rate Limiting**: Add `tower_governor` or a token-bucket middleware in `src/api/middleware/`.
 

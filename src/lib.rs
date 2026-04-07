@@ -7,7 +7,7 @@
 //! The application is structured in layers for maintainability and scalability:
 //! - [`api`]: HTTP transport layer containing Axum handlers and routing.
 //! - [`services`]: Domain business logic, collision handling, and URL validation.
-//! - [`repository`]: Isolated database access layer using SQLx.
+//! - [`repository`]: Isolated database access layer using SeaORM.
 //! - [`models`]: Strongly-typed entities and JSON Data Transfer Objects (DTOs).
 //! - [`config`]: Application configuration loaded from environment variables.
 //! - [`error`]: Centralized error types and HTTP response conversion.

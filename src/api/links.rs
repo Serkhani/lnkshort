@@ -78,10 +78,7 @@ pub async fn get_stats_handler(
     State(state): State<AppState>,
     Path(link_id): Path<String>,
 ) -> Result<Json<Vec<LinkStats>>, AppError> {
-    let stats = state
-        .stats_service
-        .get_stats(&state.db, &link_id)
-        .await?;
+    let stats = state.stats_service.get_stats(&state.db, &link_id).await?;
 
     Ok(Json(stats))
 }

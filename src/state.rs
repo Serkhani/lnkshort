@@ -1,5 +1,5 @@
+use sea_orm::DatabaseConnection;
 use std::sync::Arc;
-use sqlx::PgPool;
 
 use crate::config::AppConfig;
 use crate::repository::{LinkRepository, SettingsRepository, StatsRepository};
@@ -7,7 +7,7 @@ use crate::services::{AuthService, LinkService, StatsService};
 
 #[derive(Clone)]
 pub struct AppState {
-    pub db: PgPool,
+    pub db: DatabaseConnection,
     pub config: Arc<AppConfig>,
     pub link_service: LinkService,
     pub stats_service: StatsService,
@@ -15,7 +15,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(db: PgPool, config: Arc<AppConfig>) -> Self {
+    pub fn new(db: DatabaseConnection, config: Arc<AppConfig>) -> Self {
         let link_repo = LinkRepository::new();
         let stats_repo = StatsRepository::new();
         let settings_repo = SettingsRepository::new();

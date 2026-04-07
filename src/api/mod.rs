@@ -34,7 +34,10 @@ pub fn create_router(
                 .route_layer(from_fn_with_state(state.clone(), auth_middleware))
                 .get(redirect_handler),
         )
-        .route("/metrics", get(move || async move { metric_handle.render() }))
+        .route(
+            "/metrics",
+            get(move || async move { metric_handle.render() }),
+        )
         .layer(TraceLayer::new_for_http())
         .layer(prom_layer)
         .with_state(state)

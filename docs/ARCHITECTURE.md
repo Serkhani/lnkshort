@@ -48,12 +48,12 @@ graph TD
 
 ### 2.3 Repository Layer (`src/repository/`)
 
-- **Responsibility**: Direct data persistence and query execution using `sqlx`.
+- **Responsibility**: Direct data persistence and query execution using SeaORM entities and active models.
 - **Key Repositories**:
   - `LinkRepository`: CRUD queries for the `links` table.
   - `StatsRepository`: Ingestion and aggregated grouping queries for `lnkstats`.
   - `SettingsRepository`: Retrieval of authentication credentials and configuration.
-- **Rules**: Repositories contain all SQL queries. If the underlying database changes or caching is added, only this layer is modified.
+- **Rules**: Repositories contain all database operations. If the underlying database changes or caching is added, only this layer is modified.
 
 ### 2.4 Domain Models & DTOs (`src/models/`)
 

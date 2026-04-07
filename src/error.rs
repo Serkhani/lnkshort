@@ -7,7 +7,7 @@ pub enum AppError {
     NotFound(String),
     InvalidUrl(String),
     Unauthorized(String),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
     Timeout(String),
     ExhaustedRetries,
     Internal(String),
@@ -36,8 +36,8 @@ impl std::error::Error for AppError {
     }
 }
 
-impl From<sqlx::Error> for AppError {
-    fn from(err: sqlx::Error) -> Self {
+impl From<sea_orm::DbErr> for AppError {
+    fn from(err: sea_orm::DbErr) -> Self {
         Self::Database(err)
     }
 }

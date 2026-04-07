@@ -1,12 +1,11 @@
+use sea_orm::{ConnectOptions, Database};
 use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use sqlx::postgres::PgPoolOptions;
 
 use lnkshort::{
-    create_router,
+    AppConfig, AppState, create_router,
     telemetry::{init_tracing, setup_metrics},
-    AppConfig, AppState,
 };
 
 #[tokio::main]
@@ -18,12 +17,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     init_tracing(&config.log_level);
 
     tracing::info!("Initializing database connection pool...");
-    let db = PgPoolOptions::new()
-        .max_connections(config.database.max_connections)
+    let mut opt = ConnectOptions::new(&config.database.url);
+    opt.max_connections(config.database.max_connections)
         .min_connections(config.database.min_connections)
-        .acquire_timeout(config.database.acquire_timeout)
-        .connect(&config.database.url)
-        .await?;
+        .acquire_timeout(config.database.acquire_timeout);
+
+    let db = Database::connect(opt).await?;
 
     let (prom_layer, metric_handle) = setup_metrics();
 

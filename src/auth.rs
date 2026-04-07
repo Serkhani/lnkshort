@@ -4,10 +4,10 @@ use axum::{
     middleware::Next,
     response::IntoResponse,
 };
-use sqlx::PgPool;
+use sea_orm::DatabaseConnection;
 
 pub async fn auth(
-    State(pool): State<PgPool>,
+    State(db): State<DatabaseConnection>,
     req: Request,
     next: Next,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
@@ -31,7 +31,7 @@ pub async fn auth(
     let auth_service = crate::services::AuthService::new(repo, config);
 
     auth_service
-        .verify_api_key(&pool, api_key, &uri)
+        .verify_api_key(&db, api_key, &uri)
         .await
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Unauthorised".to_string()))?;
 

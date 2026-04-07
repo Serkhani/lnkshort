@@ -1,7 +1,7 @@
-use std::sync::Arc;
 use metrics::counter;
+use sea_orm::DatabaseConnection;
 use sha3::{Digest, Sha3_256};
-use sqlx::PgPool;
+use std::sync::Arc;
 
 use crate::config::LinkConfig;
 use crate::error::AppError;
@@ -28,7 +28,7 @@ impl AuthService {
 
     pub async fn verify_api_key(
         &self,
-        pool: &PgPool,
+        db: &DatabaseConnection,
         api_key: &str,
         request_uri: &str,
     ) -> Result<(), AppError> {
@@ -36,7 +36,7 @@ impl AuthService {
 
         let setting = tokio::time::timeout(
             self.config.query_timeout,
-            self.repo.get_default_settings(pool),
+            self.repo.get_default_settings(db),
         )
         .await
         .map_err(|e| AppError::Timeout(e.to_string()))?

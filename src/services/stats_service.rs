@@ -1,5 +1,5 @@
+use sea_orm::DatabaseConnection;
 use std::sync::Arc;
-use sqlx::PgPool;
 
 use crate::config::LinkConfig;
 use crate::error::AppError;
@@ -19,7 +19,7 @@ impl StatsService {
 
     pub async fn record_stat(
         &self,
-        pool: &PgPool,
+        db: &DatabaseConnection,
         link_id: String,
         user_agent: Option<String>,
         referer: Option<String>,
@@ -30,11 +30,8 @@ impl StatsService {
             referer: referer.clone(),
         };
 
-        let result = tokio::time::timeout(
-            self.config.query_timeout,
-            self.repo.record_stat(pool, &stat),
-        )
-        .await;
+        let result =
+            tokio::time::timeout(self.config.query_timeout, self.repo.record_stat(db, &stat)).await;
 
         match result {
             Err(elapsed) => tracing::error!("Could not save stat in time: {}", elapsed),
@@ -48,10 +45,14 @@ impl StatsService {
         }
     }
 
-    pub async fn get_stats(&self, pool: &PgPool, link_id: &str) -> Result<Vec<LinkStats>, AppError> {
+    pub async fn get_stats(
+        &self,
+        db: &DatabaseConnection,
+        link_id: &str,
+    ) -> Result<Vec<LinkStats>, AppError> {
         let stats = tokio::time::timeout(
             self.config.query_timeout,
-            self.repo.get_stats_by_link_id(pool, link_id),
+            self.repo.get_stats_by_link_id(db, link_id),
         )
         .await
         .map_err(|e| AppError::Timeout(e.to_string()))?
