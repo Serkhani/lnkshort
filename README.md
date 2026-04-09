@@ -34,6 +34,7 @@ Built for low latency, resilience under load, and maintainability through a clea
     - [2. Isolated Analytics Recording](#2-isolated-analytics-recording)
     - [3. Constant-Time Authentication](#3-constant-time-authentication)
     - [4. Edge Caching Headers](#4-edge-caching-headers)
+    - [5. Token-Bucket Rate Limiting](#5-token-bucket-rate-limiting)
   - [Testing \& Quality Assurance](#testing--quality-assurance)
   - [Future Expansion Guide](#future-expansion-guide)
 
@@ -337,6 +338,6 @@ The refactored modular structure allows painless expansion for enterprise worklo
 
 - **Adding a Redis Cache**: Wrap `LinkRepository` with a caching repository implementation (or implement a `LinkCache` trait) to serve hot redirects straight from memory.
 - **Async Batch Analytics**: Replace direct SQL stat inserts with an in-memory queue (`tokio::sync::mpsc`) and flush batches periodically to PostgreSQL or ClickHouse.
-- **Distributed Rate Limiting**: Swap in-memory governor state with Redis Cell or Redis Token Bucket across multi-region server clusters.
+- **Distributed Rate Limiting**: Swap in-memory governor state with Redis Cell or Redis Token Bucket across multi-region server clusters.✅
 
 For complete details, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
