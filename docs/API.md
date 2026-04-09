@@ -268,6 +268,11 @@ request_error{error="PoolTimedOut!"} 1
 # Standard Axum HTTP metrics
 axum_http_requests_total{method="GET",status="307"} 1542
 axum_http_requests_duration_seconds_bucket{le="0.005"} 1500
+
+# Rate limiting metrics
+# HELP rate_limited_requests_count Total rate-limited requests rejected with HTTP 429
+# TYPE rate_limited_requests_count counter
+rate_limited_requests_count 4
 ```
 
 #### Example cURL 5
@@ -275,3 +280,27 @@ axum_http_requests_duration_seconds_bucket{le="0.005"} 1500
 ```bash
 curl -i http://localhost:3000/metrics
 ```
+
+---
+
+## Rate Limiting & Throttling
+
+Application routes (`POST /create`, `GET /{id}`, `PUT /{id}`, `GET /{id}/stats`) are protected by a token-bucket rate limiter.
+
+When a client IP exceeds the configured burst capacity or refill rate:
+
+### Response
+
+- **Status**: `429 Too Many Requests`
+- **Headers**:
+  - `Content-Type: application/json`
+  - `Retry-After: <seconds>` (estimated seconds until quota is replenished)
+
+```http
+HTTP/1.1 429 Too Many Requests
+content-type: application/json
+retry-after: 2
+
+{"error":"Too Many Requests"}
+```
+

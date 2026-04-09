@@ -18,7 +18,7 @@ To meet these requirements, `lnkshort` adopts a **Layered Clean Architecture** c
 graph TD
     Client[Client / Browser] -->|HTTP Request| API[API Layer: Handlers & Middleware]
     API -->|Validates & Coordinates| Service[Service Layer: Business Logic]
-    Service -->|Executes DB Operations| Repo[Repository Layer: SQLx Queries]
+    Service -->|Executes DB Operations| Repo[Repository Layer: SeaORM Queries]
     Repo -->|Async Pool| DB[(PostgreSQL)]
     
     API -.->|State & Config| State[AppState Container]
@@ -137,6 +137,14 @@ Cache-Control: public, max-age=300, s-maxage=300, state-while-revalidate=300, st
 - **`stale-while-revalidate`**: Downstream caches serve stale redirects instantly while fetching updates asynchronously.
 - **Impact**: Under viral traffic, 95%+ of redirect requests can be served directly from CDN edge caches without touching the application server or PostgreSQL.
 
+### 3.5 Token-Bucket Rate Limiting with Header-Aware IP Extraction
+
+To prevent brute-force attacks, resource exhaustion, and scraping, application routes are layered with an in-memory token-bucket rate limiter via `tower_governor`:
+
+- **Smart IP Key Extraction**: Evaluates incoming proxy headers in order of precedence: `Forwarded`, `X-Forwarded-For`, and `X-Real-IP`. When headers are absent, it gracefully extracts the remote socket address from `ConnectInfo<SocketAddr>`.
+- **Refill Rate & Burst Capacity**: Configured with independent fill rate (`RATE_LIMIT_PER_SECOND`) and max burst (`RATE_LIMIT_BURST`), allowing bursty web traffic while throttling sustained abuse.
+- **Selective Layering**: Operational routes (`/health`, `/metrics`) bypass rate limiting, guaranteeing that monitoring agents and container orchestrators never receive false-positive HTTP 429 errors.
+
 ---
 
 ## 4. Database Schema & Indexing Analysis
@@ -217,6 +225,9 @@ Implement a caching layer in `services/link_service.rs`:
 3. Add JWT / Session authentication middleware in `src/api/middleware/auth.rs`.
 4. Update `LinkRepository::create` and `LinkRepository::find_by_user` to scope queries by `user_id`.
 
-### 3. Distributed Rate Limiting
+### 3. Distributed Rate Limiting Across Clusters
 
-Add `tower` middleware (such as `tower_governor`) in `src/api/mod.rs` to rate limit by client IP, protecting the service from brute-force URL generation or denial-of-service attempts.
+The service currently utilizes high-performance in-memory rate limiting via `tower_governor`. For multi-instance deployments behind a layer-7 load balancer:
+
+- Replace the in-process governor storage with Redis Cell (`CL.THROTTLE`) or distributed token bucket via Redis scripts.
+- Alternatively, enforce rate limiting at the API Gateway or ingress controller (e.g. NGINX, Envoy, Traefik, or Cloudflare Rate Limiting Rules) while retaining application-level limits as a secondary defense.

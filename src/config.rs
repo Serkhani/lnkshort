@@ -23,10 +23,18 @@ pub struct LinkConfig {
 }
 
 #[derive(Clone, Debug)]
+pub struct RateLimitConfig {
+    pub enabled: bool,
+    pub requests_per_second: u64,
+    pub burst_size: u32,
+}
+
+#[derive(Clone, Debug)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub link: LinkConfig,
+    pub rate_limit: RateLimitConfig,
     pub log_level: String,
 }
 
@@ -68,6 +76,21 @@ impl AppConfig {
                 .to_string()
         });
 
+        let rate_limit_enabled = std::env::var("RATE_LIMIT_ENABLED")
+            .map(|v| v != "0" && v.to_lowercase() != "false")
+            .unwrap_or(true);
+
+        let requests_per_second = std::env::var("RATE_LIMIT_PER_SECOND")
+            .or_else(|_| std::env::var("RATE_LIMIT_RPS"))
+            .ok()
+            .and_then(|r| r.parse().ok())
+            .unwrap_or(50);
+
+        let burst_size = std::env::var("RATE_LIMIT_BURST")
+            .ok()
+            .and_then(|b| b.parse().ok())
+            .unwrap_or(100);
+
         Ok(Self {
             server: ServerConfig {
                 host,
@@ -84,6 +107,11 @@ impl AppConfig {
                 max_retries,
                 default_cache_control,
                 query_timeout: Duration::from_millis(query_timeout_ms),
+            },
+            rate_limit: RateLimitConfig {
+                enabled: rate_limit_enabled,
+                requests_per_second,
+                burst_size,
             },
             log_level,
         })

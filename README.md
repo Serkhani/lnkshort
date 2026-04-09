@@ -47,8 +47,9 @@ Built for low latency, resilience under load, and maintainability through a clea
 - **Resilient Analytics Tracking**: Request analytics (User-Agent, Referer) recorded with query timeouts so redirection latency remains unaffected by database delays.
 - **Constant-Time Authentication**: SHA3-256 API key verification with constant-time byte comparison against timing attacks.
 - **URL Scheme Validation**: Defense against open-redirect XSS exploits (e.g. `javascript:` or `data:` schemes).
+- **Token-Bucket Rate Limiting**: Built-in IP-based rate limiting via `tower_governor` with `SmartIpKeyExtractor` (header-aware proxy support) protecting all application routes with HTTP 429 and `Retry-After` headers.
 - **Graceful Shutdown**: Native support for `SIGINT` (Ctrl+C) and `SIGTERM` signals for clean drain in Kubernetes/Docker environments.
-- **Prometheus Telemetry**: Integrated metrics endpoint (`/metrics`) tracking request counts, unauthenticated calls, error counts, and collision events.
+- **Prometheus Telemetry**: Integrated metrics endpoint (`/metrics`) tracking request counts, unauthenticated calls, error counts, rate limited requests, and collision events.
 
 ---
 
@@ -254,6 +255,9 @@ All configuration settings are loaded via environment variables or fall back to 
 | `QUERY_TIMEOUT_MS` | `300` | Timeout in milliseconds per database operation |
 | `LINK_MAX_RETRIES` | `3` | Maximum attempts to generate a non-colliding ID |
 | `DEFAULT_CACHE_CONTROL` | `public, max-age=300...` | Cache-Control header applied to 307 redirects |
+| `RATE_LIMIT_ENABLED` | `true` | Enable or disable token-bucket rate limiting |
+| `RATE_LIMIT_PER_SECOND` | `50` | Refill rate in requests per second per IP |
+| `RATE_LIMIT_BURST` | `100` | Maximum burst capacity per IP |
 | `RUST_LOG` | `lnkshort=debug` | Tracing log filter expression |
 
 ---
@@ -265,6 +269,7 @@ Prometheus metrics are collected via `axum-prometheus` and exposed at `GET /metr
 Key domain metrics:
 
 - `unauthenticated_calls_count`: Incremented when an unauthorized request is made (labeled by `uri`).
+- `rate_limited_requests_count`: Incremented when incoming requests exceed token-bucket rate limits (HTTP 429).
 - `exhausting_unique_entries`: Incremented when all unique short link collision retry attempts are exhausted.
 - `request_error`: Incremented on unexpected errors or database failures (labeled by `error`).
 - `axum_http_requests_total`: Total HTTP requests served.
@@ -293,6 +298,14 @@ To mitigate side-channel timing attacks where an attacker infers key characters 
 ### 4. Edge Caching Headers
 
 Redirect responses include `Cache-Control: public, max-age=300, s-maxage=300, stale-while-revalidate=300`. Downstream reverse proxies, CDNs (e.g. Cloudflare), and browsers cache the redirect, drastically reducing load on the database for viral links.
+
+### 5. Token-Bucket Rate Limiting
+
+The application embeds an in-memory token-bucket rate limiter via `tower_governor`:
+
+- **Smart IP Extraction**: Evaluates `Forwarded`, `X-Forwarded-For`, and `X-Real-IP` proxy headers, falling back gracefully to peer socket addresses (`ConnectInfo<SocketAddr>`).
+- **Standardized Responses**: Rejections emit `HTTP 429 Too Many Requests` along with standard `Retry-After` headers and JSON error payloads.
+- **Operational Route Immunity**: Telemetry (`/metrics`) and health check (`/health`) endpoints bypass rate limits to avoid disrupting Prometheus scrapers and Kubernetes probes.
 
 ---
 
@@ -324,6 +337,6 @@ The refactored modular structure allows painless expansion for enterprise worklo
 
 - **Adding a Redis Cache**: Wrap `LinkRepository` with a caching repository implementation (or implement a `LinkCache` trait) to serve hot redirects straight from memory.
 - **Async Batch Analytics**: Replace direct SQL stat inserts with an in-memory queue (`tokio::sync::mpsc`) and flush batches periodically to PostgreSQL or ClickHouse.
-- **Rate Limiting**: Add `tower_governor` or a token-bucket middleware in `src/api/middleware/`.
+- **Distributed Rate Limiting**: Swap in-memory governor state with Redis Cell or Redis Token Bucket across multi-region server clusters.
 
 For complete details, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

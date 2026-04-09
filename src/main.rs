@@ -34,9 +34,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     tracing::info!("Server running on: http://{}", listener.local_addr()?);
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     tracing::info!("Server shutdown completed");
     Ok(())
